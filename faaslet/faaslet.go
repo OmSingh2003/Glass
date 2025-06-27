@@ -2,8 +2,9 @@ package main
 
 import "unsafe"
 
-// Import the host functions we defined in main
-//
+// --- Host Function Imports ---
+// These declarations allow our Wasm module to call functions defined in the host.
+
 //go:wasm-module env
 //export set_state
 func setState(keyPtr, keyLen, value uint32)
@@ -12,14 +13,15 @@ func setState(keyPtr, keyLen, value uint32)
 //export get_state
 func getState(keyPtr, keyLen uint32) uint64
 
-// main is required for TinyGo to compile.
-func main() {}
+// --- Wasm Function Exports ---
+// These functions are exported to be called by the host.
 
 //export add
 func add(a, b uint64) uint64 {
-	// Get the current value of "counter" from the host
 	counterKey := "counter"
 	counterPtr, counterLen := stringToPtr(counterKey)
+
+	// Get the current value of "counter" from the host's state store
 	currentCounter := getState(counterPtr, counterLen)
 
 	// Calculate the new value
@@ -31,12 +33,14 @@ func add(a, b uint64) uint64 {
 	return newValue
 }
 
-// Helper function to pass strings to the host
+// --- Helper Functions ---
+
+// stringToPtr is a helper function to pass strings to the host.
 func stringToPtr(s string) (uint32, uint32) {
-	// This is a bit of a hack to get a pointer to the string data
-	// In a real application, we would use a more robust method
-	// for memory management.
 	buf := []byte(s)
 	ptr := &buf[0]
 	return uint32(uintptr(unsafe.Pointer(ptr))), uint32(len(s))
 }
+
+// main is required by TinyGo to compile to Wasm.
+func main() {}
