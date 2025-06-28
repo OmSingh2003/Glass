@@ -28,65 +28,96 @@ func main() {
 		log.Fatalf("Failed to create WASM runtime: %v", err)
 	}
 
-	// Set initial state in Redis only if it doesn't exist
-	currentValue, err := stateManager.Get(ctx, "counter")
-	if err != nil {
-		log.Printf("Counter doesn't exist, setting initial value to 100")
-		if err := stateManager.Set(ctx, "counter", 100); err != nil {
-			log.Fatalf("Failed to set initial state: %v", err)
-		}
-	} else {
-		log.Printf("Counter exists with value %d, continuing from there", currentValue)
+	// Initialize some demo feature flags and settings
+	if err := stateManager.Set(ctx, "flag:global:1", 1); err != nil {
+		log.Printf("Failed to set global feature flag: %v", err)
 	}
+	log.Printf("Initialized Glass with rate limiting, session management, and feature flags")
 
-	fmt.Println("--- Running 3 Faaslets Concurrently ---")
-	// Spawning multiple Faaslets
+	fmt.Println("--- Testing Rate Limiter with Multiple Clients ---")
+	// Spawning multiple Faaslets to test rate limiting
 	var wg sync.WaitGroup
-	for i := 1; i <= 3; i++ {
+	for i := 1; i <= 5; i++ {
 		wg.Add(1)
-		go func(instanceNum int) {
+		go func(clientID int) {
 			defer wg.Done()
 
-			// Instantiate a new module for each "Faaslet". This is like a cold start.
+			// Instantiate a new module for each client
 			module, err := wasmRuntime.Runtime.InstantiateModule(ctx, wasmRuntime.CompiledModule, 
-				wazero.NewModuleConfig().WithName(fmt.Sprintf("faaslet-%d", instanceNum)))
+				wazero.NewModuleConfig().WithName(fmt.Sprintf("client-%d", clientID)))
 			if err != nil {
-				log.Printf("Failed to instantiate module %d: %v", instanceNum, err)
+				log.Printf("Failed to instantiate module for client %d: %v", clientID, err)
 				return
 			}
 			defer module.Close(ctx)
 
-			addFn := module.ExportedFunction("add") // calls the add function defined in wasm
-			if addFn == nil {
-				log.Printf("Function 'add' not found in module %d", instanceNum)
+			// Test rate limiting
+			rateLimitFn := module.ExportedFunction("rate_limit")
+			if rateLimitFn == nil {
+				log.Printf("Function 'rate_limit' not found for client %d", clientID)
 				return
 			}
 
-			// Each instance adds a different value.
-			addValue := uint64(instanceNum * 10)
-			results, err := addFn.Call(ctx, addValue, 0)
-			if err != nil {
-				// Check if this is a normal exit (exit code 0)
-				if err.Error() == "module closed with exit_code(0)" {
-					// This is a successful completion, not an error
-					fmt.Printf("Instance %d completed successfully\n", instanceNum)
-					return
+			// Each client tries to make 3 requests with a limit of 2 per window
+			for req := 1; req <= 3; req++ {
+				results, err := rateLimitFn.Call(ctx, uint64(clientID), 2, 60) // clientID, limit=2, window=60s
+				if err != nil {
+					if err.Error() == "module closed with exit_code(0)" {
+						continue
+					}
+					log.Printf("Error in client %d request %d: %v", clientID, req, err)
+					continue
 				}
-				log.Printf("Error in instance %d: %v", instanceNum, err)
-				return
+				remaining := results[0]
+				if remaining == 0 {
+					fmt.Printf("Client %d Request %d: RATE LIMITED\n", clientID, req)
+				} else {
+					fmt.Printf("Client %d Request %d: SUCCESS (remaining: %d)\n", clientID, req, remaining)
+				}
 			}
-			fmt.Printf("Instance %d Result: %d\n", instanceNum, results[0])
 		}(i)
 	}
 
 	wg.Wait()
 
-	// Get final state from Redis
-	finalCounter, err := stateManager.Get(ctx, "counter")
+	fmt.Println("\n--- Testing Session Management ---")
+	// Test session management
+	module, err := wasmRuntime.Runtime.InstantiateModule(ctx, wasmRuntime.CompiledModule, wazero.NewModuleConfig())
 	if err != nil {
-		log.Printf("Failed to get final counter: %v", err)
+		log.Printf("Failed to instantiate module for session test: %v", err)
 		return
 	}
+	defer module.Close(ctx)
 
-	fmt.Printf("\n--- Final State of 'counter': %d ---\n", finalCounter)
+	// Test session creation
+	createSessionFn := module.ExportedFunction("create_session")
+	if createSessionFn != nil {
+		results, err := createSessionFn.Call(ctx, 12345) // userID = 12345
+		if err == nil && len(results) > 0 {
+			sessionID := results[0]
+			fmt.Printf("Created session: %d for user: 12345\n", sessionID)
+
+			// Test session validation
+			validateSessionFn := module.ExportedFunction("validate_session")
+			if validateSessionFn != nil {
+				results, err := validateSessionFn.Call(ctx, sessionID)
+				if err == nil && len(results) > 0 {
+					userID := results[0]
+					fmt.Printf("Session %d validation result - UserID: %d\n", sessionID, userID)
+				}
+			}
+		}
+	}
+
+	// Test feature flags
+	checkFeatureFn := module.ExportedFunction("check_feature_flag")
+	if checkFeatureFn != nil {
+		results, err := checkFeatureFn.Call(ctx, 12345, 1) // userID=12345, flagID=1
+		if err == nil && len(results) > 0 {
+			flagEnabled := results[0]
+			fmt.Printf("Feature flag 1 for user 12345: %s\n", map[uint64]string{0: "DISABLED", 1: "ENABLED"}[flagEnabled])
+		}
+	}
+
+	fmt.Println("\n--- Glass Platform Demo Complete ---")
 }

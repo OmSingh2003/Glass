@@ -1,4 +1,3 @@
-// /Glass/handlers/handlers.go
 package handlers
 
 import (
@@ -16,7 +15,6 @@ import (
 // InvokeHandler handles requests to execute a Wasm function.
 func InvokeHandler(wasmRuntime *runtime.WasmRuntime) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Extract function name from URL, e.g., /invoke/add -> "add"
 		functionName := r.URL.Path[len("/invoke/"):]
 		if functionName == "" {
 			http.Error(w, "Function name not provided in URL", http.StatusBadRequest)
@@ -43,9 +41,6 @@ func InvokeHandler(wasmRuntime *runtime.WasmRuntime) http.HandlerFunc {
 			return
 		}
 
-		// --- Input/Output Handling ---
-		// This is a simple example that takes a single 'value' query parameter.
-		// A more robust solution would handle request bodies (e.g., JSON).
 		valueStr := r.URL.Query().Get("value")
 		var value uint64
 		if valueStr != "" {
@@ -56,7 +51,6 @@ func InvokeHandler(wasmRuntime *runtime.WasmRuntime) http.HandlerFunc {
 			}
 		}
 
-		// Call the Wasm function. This example assumes a function signature like: func(a, b uint64) uint64
 		results, err := wasmFunc.Call(ctx, value, 0)
 		if err != nil {
 			log.Printf("Error executing wasm function '%s': %v", functionName, err)
