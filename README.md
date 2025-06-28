@@ -1,6 +1,34 @@
 # Glass
 Lightweight, shared-memory FaaS with WebAssembly in Go
 
+## Why
+
+Traditional serverless platforms face two critical performance bottlenecks:
+
+### Data Access Overheads
+- Functions often need to establish new database connections on every invocation
+- Cold starts result in repeated authentication and connection setup overhead
+- Network round-trips for simple state operations add significant latency
+- Stateless nature forces expensive external calls for shared data
+
+### Container Resource Footprint
+- Each function instance requires its own container with full OS overhead
+- Memory bloat from duplicate runtime environments and dependencies
+- Slow startup times due to container initialization
+- Resource waste when functions share similar execution contexts
+
+## Solution
+
+Glass addresses these issues through a shared-memory FaaS architecture:
+
+**Shared State Management**: Functions share an in-memory state store, eliminating the need for repeated database connections and reducing data access latency to microseconds.
+
+**WebAssembly Runtime**: WASM provides near-native performance with minimal overhead compared to containers, while maintaining strong isolation between function instances.
+
+**Persistent Runtime**: The same runtime serves multiple function invocations, avoiding cold start penalties and connection setup costs.
+
+**Memory Efficiency**: Multiple faaslets share the same host process memory space while remaining isolated through WASM's sandboxing.
+
 ## Features
 
 - **WebAssembly Runtime**: Uses wazero for fast WASM execution
