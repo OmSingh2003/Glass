@@ -35,6 +35,9 @@ Glass addresses these issues through a shared-memory FaaS architecture:
 - **Shared State**: In-memory state management with Redis backend support
 - **Concurrent Faaslets**: Multiple WASM instances running concurrently
 - **HTTP API**: RESTful endpoints for function execution and state management
+- **Load Balancer**: Consistent hashing load balancer for horizontal scaling
+- **Session Affinity**: Routes requests based on user/session IDs for state locality
+- **Health Monitoring**: Automatic health checking and failover
 - **Modular Architecture**: Clean separation of concerns with separate packages
 
 ## Project Structure
@@ -82,8 +85,15 @@ Glass addresses these issues through a shared-memory FaaS architecture:
 
 ## Usage
 
-The application demonstrates concurrent WASM execution with shared state:
+### Single Node Mode
 
+Run Glass in demo mode to see concurrent WASM execution:
+
+```bash
+./glass -mode=demo
+```
+
+Output:
 ```
 --- Running 3 Faaslets Concurrently ---
 HOST: Read state 'counter' with value 100
@@ -92,6 +102,65 @@ Instance 2 completed successfully
 ...
 --- Final State of 'counter': 160 ---
 ```
+
+### HTTP Server Mode
+
+Run Glass as an HTTP server:
+
+```bash
+./glass -mode=server -port=8080
+```
+
+Invoke functions via HTTP:
+
+```bash
+curl "http://localhost:8080/invoke/add?value=10"
+curl "http://localhost:8080/invoke/multiply?value=5"
+```
+
+### Clustered Mode with Load Balancer
+
+1. **Start a Glass cluster:**
+   ```bash
+   ./start-cluster.sh
+   ```
+   
+   This will start:
+   - 3 Glass instances on ports 9091, 9092, 9093
+   - 1 Load balancer on port 8080
+
+2. **Test the load balancer:**
+   ```bash
+   ./test-loadbalancer.sh
+   ```
+
+3. **Stop the cluster:**
+   ```bash
+   ./stop-cluster.sh
+   ```
+
+### Load Balancer Features
+
+- **Consistent Hashing**: Routes requests based on routing keys for session affinity
+- **Health Monitoring**: Automatic health checks every 10 seconds
+- **Multiple Routing Strategies**:
+  - User ID (`X-User-ID` header)
+  - Session ID (`X-Session-ID` header or `session_id` cookie)
+  - Function name (from URL path)
+  - Client IP (fallback)
+- **Virtual Nodes**: 150 virtual nodes per physical node for better distribution
+
+### API Endpoints
+
+**Glass Instance Endpoints:**
+- `GET /invoke/{function}?value={number}` - Invoke a WASM function
+- `GET /health` - Health check
+- `GET /metrics` - Basic metrics
+
+**Load Balancer Endpoints:**
+- `GET /lb/health` - Load balancer health
+- `GET /lb/status` - Detailed status with node information
+- All other requests are proxied to Glass instances
 
 ## Demo
 
