@@ -2,10 +2,17 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
+	"time"
 
+	"glass/handlers"
 	"glass/runtime"
 	"glass/state"
 
@@ -13,6 +20,14 @@ import (
 )
 
 func main() {
+	// Parse command line flags
+	var (
+		port = flag.String("port", "8080", "HTTP server port")
+		mode = flag.String("mode", "server", "Run mode: 'server' or 'demo'")
+		nodeID = flag.String("node-id", "", "Unique node identifier for load balancing")
+	)
+	flag.Parse()
+
 	ctx := context.Background()
 
 	// Initialize Redis-based state manager
@@ -32,6 +47,17 @@ func main() {
 	if err := stateManager.Set(ctx, "flag:global:1", 1); err != nil {
 		log.Printf("Failed to set global feature flag: %v", err)
 	}
+
+	if *mode == "demo" {
+		runDemo(ctx, wasmRuntime)
+		return
+	}
+
+	// HTTP Server mode
+	runServer(ctx, wasmRuntime, *port, *nodeID)
+}
+
+func runDemo(ctx context.Context, wasmRuntime *runtime.WasmRuntime) {
 	log.Printf("Initialized Glass with rate limiting, session management, and feature flags")
 
 	fmt.Println("--- Testing Rate Limiter with Multiple Clients ---")
@@ -120,4 +146,60 @@ func main() {
 	}
 
 	fmt.Println("\n--- Glass Platform Demo Complete ---")
+}
+
+func runServer(ctx context.Context, wasmRuntime *runtime.WasmRuntime, port, nodeID string) {
+	if nodeID == "" {
+		nodeID = fmt.Sprintf("glass-node-%d", time.Now().Unix())
+	}
+
+	log.Printf("Starting Glass server on port %s with node ID: %s", port, nodeID)
+
+	// Setup HTTP routes
+	mux := http.NewServeMux()
+	mux.HandleFunc("/invoke/", handlers.InvokeHandler(wasmRuntime))
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"healthy","node_id":"%s","timestamp":"%s"}`, nodeID, time.Now().Format(time.RFC3339))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"node_id":"%s","uptime_seconds":%d}`, nodeID, int64(time.Since(time.Now()).Seconds()))
+	})
+
+	// Create HTTP server
+	server := &http.Server{
+		Addr:         ":" + port,
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Setup graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		log.Printf("Glass server listening on port %s", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed to start: %v", err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	<-sigChan
+	log.Println("Shutting down Glass server...")
+
+	// Graceful shutdown with timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	} else {
+		log.Println("Glass server shut down gracefully")
+	}
 }
