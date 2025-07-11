@@ -162,6 +162,3 @@ curl "http://localhost:8080/invoke/multiply?value=5"
 - `GET /lb/status` - Detailed status with node information
 - All other requests are proxied to Glass instances
 
-## Demo
-
-![Glass Demo](images/demo.png)
