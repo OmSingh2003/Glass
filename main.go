@@ -12,7 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"glass/counters"
 	"glass/handlers"
+	"glass/logging"
 	"glass/runtime"
 	"glass/state"
 
@@ -24,9 +26,16 @@ func main() {
 	var (
 		port = flag.String("port", "8080", "HTTP server port")
 		mode = flag.String("mode", "server", "Run mode: 'server' or 'demo'")
-		nodeID = flag.String("node-id", "", "Unique node identifier for load balancing")
+		nodeID = flag.String("node-id", "glass-node", "Unique node identifier")
 	)
 	flag.Parse()
+
+
+	// Initialize logging
+	logging.InitGlobalLogger(*nodeID, logging.INFO)
+	logger := logging.GetGlobalLogger()
+	
+	logger.Info(context.Background(), "Starting Glass application...")
 
 	ctx := context.Background()
 
@@ -36,6 +45,18 @@ func main() {
 		log.Fatalf("Failed to create state manager: %v", err)
 	}
 	defer stateManager.Close()
+
+	// Initialize distributed counter
+	distributedCounter := counters.NewDistributedCounter(stateManager, *nodeID, logger)
+
+	// Example usage of distributed counter
+	ctxWithCounter := logging.WithFunctionName(ctx, "init_counter")
+	_, err = distributedCounter.Increment(ctxWithCounter, "example-counter", 1, counters.SimpleCounter)
+	if err != nil {
+		logger.Error(ctxWithCounter, "Failed to increment example counter", map[string]interface{}{"error": err.Error()})
+	} else {
+		logger.Info(ctxWithCounter, "Incremented example counter")
+	}
 
 	// Initialize WASM runtime with state manager
 	wasmRuntime, err := runtime.NewRuntime(stateManager)

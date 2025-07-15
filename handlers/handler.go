@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"glass/runtime"
 
@@ -25,8 +26,9 @@ func InvokeHandler(wasmRuntime *runtime.WasmRuntime) http.HandlerFunc {
 
 		ctx := context.Background()
 
-		// Instantiate a fresh module for each request.
-		module, err := wasmRuntime.Runtime.InstantiateModule(ctx, wasmRuntime.CompiledModule, wazero.NewModuleConfig())
+		// Instantiate a fresh module for each request with unique name
+		moduleConfig := wazero.NewModuleConfig().WithName(fmt.Sprintf("req-%d", time.Now().UnixNano()))
+		module, err := wasmRuntime.Runtime.InstantiateModule(ctx, wasmRuntime.CompiledModule, moduleConfig)
 		if err != nil {
 			log.Printf("Error instantiating module: %v", err)
 			http.Error(w, "Failed to instantiate Wasm module", http.StatusInternalServerError)
